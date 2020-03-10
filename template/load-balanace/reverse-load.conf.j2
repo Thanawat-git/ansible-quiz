@@ -1,0 +1,12 @@
+upstream app{
+    server 192.168.143.81; #server-02
+    server 192.168.143.82; #server-03
+}
+
+server {
+    listen       80;
+    server_name  www.mysite-1243.com mysite-1243.com;
+    location / {
+        proxy_pass  http://app;
+    }
+}

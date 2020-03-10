@@ -1,0 +1,25 @@
+<html>
+ <head>
+<title>server-02</title>
+</head>
+ </html>    
+<?php
+ $conn = new mysqli("192.168.100.12", "user", "123456", "todo");
+ // Check connection
+ if ($conn->connect_error) {
+     die("Connection failed: " . $conn->connect_error);
+ }
+
+ $sql = "SELECT * FROM todo";
+ $result = $conn->query($sql);
+ if ($result->num_rows > 0) {
+    // output data of each row
+    
+    while($row = $result->fetch_assoc()) {
+        echo "id: " . $row["id"]. " - Topic: " . $row["topic"]. " " . $row["status"]. "<br>";
+    }
+} else {
+    echo "0 results";
+}
+$conn->close();
+?>

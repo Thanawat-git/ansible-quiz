@@ -1,0 +1,252 @@
+---
+- hosts: all
+  become: yes
+  become_user: root
+  tasks:
+
+# server-01
+  - name: Install nginx
+    package:
+      name: nginx
+      state: latest
+    when: ansible_ssh_host == '192.168.143.80' # server-04
+  - name: start nginx
+    service:
+      name: nginx
+      state: started
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: enable nginx
+    service:
+      name: nginx
+      enabled: yes
+    when: ansible_ssh_host == '192.168.143.80'
+  
+  #---edit hosts file 
+  - name: edit /etc/hosts
+    shell:
+      cmd: sed -i '3 i\
+          192.168.143.80 www.mysite-1243.com\' /etc/hosts
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: edit /etc/hosts
+    shell:
+      cmd: sed -i '3 i\
+          192.168.143.81 server-02.mysite-1243.com\' /etc/hosts
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: edit /etc/hosts
+    shell:
+      cmd: sed -i '3 i\
+          192.168.143.82 server-03.mysite-1243.com\' /etc/hosts
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: edit reverse.conf
+    shell:
+      cmd: sudo cp /vagrant/ansible/template/load-balanace/reverse-load.conf.j2 /etc/nginx/conf.d/reverse.conf # => load-balance
+      #cmd: sudo cp /vagrant/ansible/template/vhost/reverse.conf.j2 /etc/nginx/conf.d/reverse.conf # => proxy
+    when: ansible_ssh_host == '192.168.143.80'
+# server-01
+
+# server-02,03
+  - name: Install apache {httpd}
+    package:
+      name: httpd
+      state: latest
+    when: inventory_hostname in groups['apache'] # server-02,03
+  - name: start and enable httpd
+    systemd:
+      name: httpd
+      state: started
+      enabled: yes
+    when: inventory_hostname in groups['apache']
+  - name: edit httpd.conf server-02
+    shell:
+      cmd: sudo cp /vagrant/ansible/template/vhost/httpd-server02.conf.j2 /etc/httpd/conf/httpd.conf
+    when: ansible_ssh_host == '192.168.143.81' #server-02
+  - name: edit httpd.conf server-03
+    shell:
+      cmd: sudo cp /vagrant/ansible/template/vhost/httpd-server03.conf.j2 /etc/httpd/conf/httpd.conf
+    when: ansible_ssh_host == '192.168.143.82' #server-03
+  - name: start and enable httpd
+    systemd:
+      name: httpd
+      state: started
+      enabled: yes
+    when: inventory_hostname in groups['apache']
+  - name: restart httpd
+    service:
+      name: httpd
+      state: restarted
+    when: inventory_hostname in groups['apache']
+  
+  #---php
+  - name: add repo remi 8
+    shell:
+      cmd: sudo dnf install dnf-utils http://rpms.remirepo.net/enterprise/remi-release-8.rpm -y
+    when: inventory_hostname in groups['apache']
+  - name: reset php
+    shell:
+      cmd: sudo dnf module reset php -y
+    when: inventory_hostname in groups['apache']
+  - name: enable remi7.2 on server-02
+    shell:
+      cmd: sudo dnf module enable php:remi-7.2 -y
+    when:  inventory_hostname in groups['apache']
+  - name: install php
+    shell:
+      cmd: sudo dnf install php php-opcache php-gd php-curl php-mysqlnd php-mysqli -y
+    when: inventory_hostname in groups['apache']
+  - name: Start php-fpm
+    shell:
+      cmd: systemctl start php-fpm
+    when: inventory_hostname in groups['apache']
+  - name: enable php-fpm
+    shell:
+      cmd: systemctl enable php-fpm
+    when: inventory_hostname in groups['apache']
+  - name: restart php and httpd
+    shell:
+      cmd: systemctl restart httpd php-fpm
+    when: inventory_hostname in groups['apache']
+  #---php
+  - name: create mysite-1243.com
+    shell:
+      cmd: sudo mkdir -p /var/www/mysite-1243.com
+    when: inventory_hostname in groups['apache']
+  # - name: create index.php
+  #   shell:
+  #     cmd: echo "<?php phpinfo() ?>" > /var/www/mysite-1243.com/index.php
+  #   when: inventory_hostname in groups['apache']
+
+  #----
+  - name: install mariadb on server-02,03
+    shell:
+      cmd: sudo yum -y install @mariadb
+    when: inventory_hostname in groups['apache']
+  - name: edit index.php
+    shell:
+      cmd: sudo cp /vagrant/ansible/template/index.php.j2 /var/www/mysite-1243.com/index.php
+    when: inventory_hostname in groups['apache']  #server02,03
+  # if proxy use
+  # - name: edit index.php
+  #   shell:
+  #     cmd: sudo cp /vagrant/ansible/template/index02.php.j2 /var/www/mysite-1243.com/index.php
+  #   when: ansible_ssh_host == '192.168.143.81'  #server02
+  # - name: edit index.php
+  #   shell:
+  #     cmd: sudo cp /vagrant/ansible/template/index03.php.j2 /var/www/mysite-1243.com/index.php
+  #   when: ansible_ssh_host == '192.168.143.83'  #server03
+  - name: restart php-fpm
+    shell:
+      cmd: sudo systemctl restart php-fpm
+    when: inventory_hostname in groups['apache']
+# server-02,03
+
+#---firewall
+  - name: start and enable firewall
+    systemd:
+      name: firewalld
+      state: started
+      enabled: yes
+  # - firewalld:
+  #     service: https
+  #     permanent: yes
+  #     state: enabled
+  - name: Open port 80 {http}
+    shell:
+      cmd: firewall-cmd --zone=public --permanent --add-service=http
+    
+  - name: Open port 443 {https}
+    shell:
+      cmd: firewall-cmd --zone=public --permanent --add-service=https
+  - name: Reload firewall
+    shell:
+      cmd: firewall-cmd --reload
+
+  - name: restart firewalld
+    service:
+      name: firewalld
+      state: restarted
+  - name: restart httpd
+    service:
+      name: httpd
+      state: restarted
+    when: inventory_hostname in groups['apache']
+#---firewall
+
+# server-04
+  - name: install mariadb-server on server-04
+    yum:
+      name:
+        - mariadb-server
+        - python3-PyMySQL
+      state: latest
+    when: ansible_ssh_host == '192.168.143.70' #server-04
+  - name: start mariadb
+    service:
+      name: mariadb
+      enabled: true
+      state: started
+    when: inventory_hostname in groups['nfs'] #server02,03,04
+  
+  #--- mysal
+  - name: Create user
+    mysql_user:
+      name: "thanawat"
+      password: "passwd"
+      host: "%"
+      priv: '*.*:ALL,GRANT'
+      state: present
+    when: ansible_ssh_host == '192.168.143.70'
+  - name: restart db
+    service:
+      name: mariadb
+      state: restarted
+    when: ansible_ssh_host == '192.168.143.70'
+
+  - name: open firewall mysql
+    shell: 
+      cmd: sudo firewall-cmd --permanent --add-service=mysql
+    when: ansible_ssh_host == '192.168.143.70'
+  - name: reload firewall 
+    shell: 
+      cmd: sudo firewall-cmd --reload
+    when: ansible_ssh_host == '192.168.143.70'
+# server-04
+
+  - name: Open port 80 {http}
+    shell:
+      cmd: firewall-cmd --zone=public --permanent --add-service=http
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: Reload firewall
+    shell:
+      cmd: firewall-cmd --reload
+    when: ansible_ssh_host == '192.168.143.80'
+  - name: restart nginx
+    shell:
+      cmd: sudo systemctl restart nginx
+    when: ansible_ssh_host == '192.168.143.80'
+    
+#--- database
+  - name: copy database to tmp
+    template:
+      src: todo.sql # database name
+      dest: /tmp
+      owner: root
+      group: root
+      mode: "0755"
+      force: yes
+    when: ansible_ssh_host == '192.168.143.70'
+  
+  - name: restore db
+    mysql_db: 
+      name: todo 
+      state: import
+      target: /tmp/todo.sql # location database
+    when: ansible_ssh_host == '192.168.143.70'
+  - name: restart db
+    service:
+      name: mariadb
+      state: restarted
+    when: ansible_ssh_host == '192.168.143.70'
+  - name: reload firewall 
+    shell: 
+      cmd: sudo firewall-cmd --reload
+    when: ansible_ssh_host == '192.168.143.70'
